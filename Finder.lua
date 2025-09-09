@@ -1,54 +1,59 @@
--- steal_a_brainrot_dashboard_final.lua
--- Server hop optimizado + dashboard + historial + notificaciones
+-- steal_a_brainrot_hopper_ultra.lua
+-- Ultra Dashboard + Server hop + Escaneo + Notificaciones
 
 local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
 local Players = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
-local placeId = 1234567890 -- << REEMPLAZA por el PlaceId de Steal a Brainrot
+local placeId = 1234567890 -- << REEMPLAZA por el PlaceId real
 local targetName = "La Grande Combinasion"
 
--- Historial de servidores visitados
-local visitedServers = {}
+-- Historial de servidores visitados y encontrados
+getgenv().visitedServers = getgenv().visitedServers or {}
+getgenv().foundPlayers = getgenv().foundPlayers or {}
 
--- Crear GUI
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "BrainrotDashboard"
-screenGui.ResetOnSpawn = false
-screenGui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+-- Crear GUI Ultra Dashboard
+local function createDashboard()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "BrainrotUltraDashboard"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 
-local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 450, 0, 250)
-frame.Position = UDim2.new(0.5, -225, 0, 50)
-frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-frame.BackgroundTransparency = 0.3
-frame.BorderSizePixel = 2
-frame.Parent = screenGui
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 500, 0, 300)
+    frame.Position = UDim2.new(0.5, -250, 0, 50)
+    frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    frame.BackgroundTransparency = 0.3
+    frame.BorderSizePixel = 2
+    frame.Parent = screenGui
 
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, 0, 0, 30)
-title.BackgroundTransparency = 1
-title.Text = "Brainrot Dashboard (Final)"
-title.TextColor3 = Color3.fromRGB(255, 255, 255)
-title.Font = Enum.Font.SourceSansBold
-title.TextScaled = true
-title.Parent = frame
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 30)
+    title.BackgroundTransparency = 1
+    title.Text = "Brainrot Ultra Dashboard"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.Font = Enum.Font.SourceSansBold
+    title.TextScaled = true
+    title.Parent = frame
 
-local infoLabel = Instance.new("TextLabel")
-infoLabel.Size = UDim2.new(1, -10, 1, -40)
-infoLabel.Position = UDim2.new(0, 5, 0, 35)
-infoLabel.BackgroundTransparency = 1
-infoLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-infoLabel.TextXAlignment = Enum.TextXAlignment.Left
-infoLabel.TextYAlignment = Enum.TextYAlignment.Top
-infoLabel.Font = Enum.Font.SourceSans
-infoLabel.TextScaled = false
-infoLabel.TextWrapped = true
-infoLabel.Text = "Iniciando..."
-infoLabel.Parent = frame
+    local scrollFrame = Instance.new("ScrollingFrame")
+    scrollFrame.Size = UDim2.new(1, -10, 1, -40)
+    scrollFrame.Position = UDim2.new(0, 5, 0, 35)
+    scrollFrame.BackgroundTransparency = 1
+    scrollFrame.CanvasSize = UDim2.new(0, 0, 5, 0)
+    scrollFrame.ScrollBarThickness = 8
+    scrollFrame.Parent = frame
 
--- Función para mostrar notificación
-local function show_notification(titleText, text, duration)
+    local uiList = Instance.new("UIListLayout")
+    uiList.Padding = UDim.new(0, 5)
+    uiList.Parent = scrollFrame
+
+    return scrollFrame
+end
+
+local scrollFrame = createDashboard()
+
+local function showNotification(titleText, text, duration)
     StarterGui:SetCore("SendNotification", {
         Title = titleText;
         Text = text;
@@ -56,7 +61,14 @@ local function show_notification(titleText, text, duration)
     })
 end
 
--- Revisar la base de un jugador
+-- Esperar jugadores y workspace cargado
+local function waitForLoad()
+    while #Players:GetPlayers() == 0 or not workspace:IsDescendantOf(game) do
+        wait(1)
+    end
+end
+
+-- Revisar base de un jugador
 local function base_contains_item(base)
     if not base then return false end
     for _, item in pairs(base:GetChildren()) do
@@ -67,8 +79,8 @@ local function base_contains_item(base)
     return false
 end
 
--- Escanea jugadores en el servidor actual
-local function scan_current_server()
+-- Escanear jugadores en servidor actual
+local function scanCurrentServer()
     local encontrados = {}
     for _, player in pairs(Players:GetPlayers()) do
         local base = workspace:FindFirstChild(player.Name .. "'s Base")
@@ -79,70 +91,77 @@ local function scan_current_server()
     return encontrados
 end
 
--- Obtener servidores públicos
-local function get_servers(cursor)
-    local url = string.format(
-        "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100%s",
-        placeId,
-        cursor and "&cursor="..cursor or ""
-    )
-    local response = HttpService:GetAsync(url)
-    return HttpService:JSONDecode(response)
-end
-
--- Actualizar dashboard
-local function update_dashboard(totalScanned, currentServer, encontrados)
-    local message = string.format(
-        "Servidores escaneados: %d\nServidor actual: %s\nServidores visitados: %d\nJugadores encontrados:\n%s",
-        totalScanned,
-        currentServer,
-        #visitedServers,
-        #encontrados > 0 and table.concat(encontrados, ", ") or "Ninguno"
-    )
-    infoLabel.Text = message
-end
-
--- Server hop optimizado
-local function server_hop()
+-- Obtener todos los servidores públicos
+local function fetchAllServers()
     local cursor = ""
-    local totalScanned = 0
+    getgenv().serverList = {}
+    repeat
+        local url = string.format(
+            "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100%s",
+            placeId,
+            cursor ~= "" and "&cursor="..cursor or ""
+        )
+        local response = HttpService:GetAsync(url)
+        local data = HttpService:JSONDecode(response)
 
-    while true do
-        -- Revisar servidor actual
-        local encontrados = scan_current_server()
-        totalScanned = totalScanned + 1
-        table.insert(visitedServers, game.JobId)
-        update_dashboard(totalScanned, game.JobId, encontrados)
-        print("Servidor escaneado:", game.JobId)
-
-        if #encontrados > 0 then
-            show_notification("¡Brainrot encontrado!", table.concat(encontrados, ", "), 10)
-            break -- Detener hopping si encontramos alguien
-        end
-
-        -- Obtener servidores públicos
-        local data = get_servers(cursor)
         for _, server in ipairs(data.data) do
-            if server.playing < server.maxPlayers and not table.find(visitedServers, server.id) then
-                print("Saltando al servidor:", server.id)
-                update_dashboard(totalScanned, server.id, encontrados)
-                TeleportService:TeleportToPlaceInstance(placeId, server.id, Players.LocalPlayer)
-                return -- Al teletransportar se detiene el script en este cliente
+            if server.playing < server.maxPlayers then
+                table.insert(getgenv().serverList, server)
             end
         end
+        cursor = data.nextPageCursor
+    until not cursor or cursor == ""
 
-        if data.nextPageCursor then
-            cursor = data.nextPageCursor
-        else
-            cursor = ""
-            print("No quedan servidores disponibles. Esperando 5 segundos...")
-            update_dashboard(totalScanned, "Ninguno", encontrados)
-            wait(5)
+    -- Ordenar servidores por cantidad de jugadores
+    table.sort(getgenv().serverList, function(a, b)
+        return a.playing > b.playing
+    end)
+end
+
+-- Actualizar GUI
+local function updateDashboard(currentServer, encontrados)
+    -- Crear etiqueta para el servidor actual
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -10, 0, 25)
+    label.BackgroundTransparency = 0.5
+    label.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    label.TextColor3 = encontrados and #encontrados > 0 and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(200, 200, 200)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Font = Enum.Font.SourceSans
+    label.Text = "Servidor: "..currentServer.." | Jugadores encontrados: "..(#encontrados > 0 and table.concat(encontrados, ", ") or "Ninguno")
+    label.Parent = scrollFrame
+
+    -- Ajustar tamaño del canvas
+    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, #scrollFrame:GetChildren()*30)
+end
+
+-- Server hop ultra optimizado
+local function serverHopUltra()
+    waitForLoad()
+    fetchAllServers()
+
+    for _, server in ipairs(getgenv().serverList) do
+        if not table.find(getgenv().visitedServers, server.id) then
+            table.insert(getgenv().visitedServers, server.id)
+            
+            -- Saltar al servidor
+            TeleportService:TeleportToPlaceInstance(placeId, server.id, Players.LocalPlayer)
+            return -- Se ejecutará de nuevo al entrar al nuevo servidor
         end
+    end
 
-        wait(1)
+    -- Escanear servidor actual
+    local encontrados = scanCurrentServer()
+    if #encontrados > 0 then
+        table.insert(getgenv().foundPlayers, encontrados)
+        updateDashboard(game.JobId, encontrados)
+        showNotification("¡Brainrot encontrado!", table.concat(encontrados, ", "), 10)
+        print("Jugadores encontrados:", table.concat(encontrados, ", "))
+    else
+        updateDashboard(game.JobId, encontrados)
+        print("Ningún jugador encontrado en este servidor:", game.JobId)
     end
 end
 
--- Ejecutar al cargar
-server_hop()
+-- Ejecutar
+serverHopUltra()
